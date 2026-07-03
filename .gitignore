@@ -4,6 +4,10 @@ __pycache__/
 *.pyc
 .venv/
 
-results/
-plots/
+# results/
+# plots/
 .pytest_cache/
+
+
+# json files
+*.json

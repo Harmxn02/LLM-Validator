@@ -102,11 +102,18 @@ docker run -p 8888:8888 ghcr.io/validator/validator:latest --port 8888  # termin
 uv run pytest                                                          # sanity-check the pipeline first
 uv run python -m analysis.check_validator_determinism --html-file some.html  # optional: confirm the validator is stable
 
-# edit config/experiment.json (models, trials, iterations) for your run, then:
-uv run python -m experiments.run_batch                                # generates results/experiments.csv
+# edit config/experiment.json (prompts, trials, iterations) for your run, then:
+uv run python -m experiments.run_batch                                # uses config's "models" list
+uv run python -m experiments.run_batch --models qwen3:8b               # or override with one/a few models
 uv run python -m analysis.stats --results-csv results/experiments.csv # tables + significance tests
 uv run python -m analysis.plots --results-csv results/experiments.csv # writes PNGs to plots/
 ```
+
+`--models` (comma-separated) overrides the config's `models` list for that
+invocation — useful for adding models to an existing `results/experiments.csv`
+one (or a few) at a time. Runs always *append* to the results CSV rather than
+overwrite it, so re-running with a model that's already in there produces
+duplicate rows — only pass models you haven't run yet.
 
 For a single manual run (e.g. to sanity-check a new model by hand), `main.py`
 still works and takes the same generation parameters as flags:

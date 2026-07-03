@@ -188,8 +188,19 @@ if __name__ == "__main__":
 		"--config", default="config/experiment.json", help="Path to the experiment config JSON."
 	)
 	parser.add_argument(
+		"--models",
+		default=None,
+		help="Comma-separated model names to override the config's \"models\" list, e.g. "
+		"--models qwen3:8b or --models qwen3:8b,gemma3:4b. Useful for adding models to an "
+		"existing results CSV one (or a few) at a time without re-running models already in it.",
+	)
+	parser.add_argument(
 		"--dry-run", action="store_true", help="Print the planned run matrix without generating or validating anything."
 	)
 	args = parser.parse_args()
 
-	run_batch(load_config(args.config), dry_run=args.dry_run)
+	config = load_config(args.config)
+	if args.models:
+		config["models"] = [m.strip() for m in args.models.split(",") if m.strip()]
+
+	run_batch(config, dry_run=args.dry_run)

@@ -1,5 +1,5 @@
 {
-  "models": ["gemma3:4b", "qwen3:8b"],
+  "models": ["gemma4:e4b", "qwen3:8b"],
   "prompts_path": "./prompts/prompts.json",
   "difficulties": ["simple", "medium", "difficult"],
   "conditions": ["feedback", "blind"],

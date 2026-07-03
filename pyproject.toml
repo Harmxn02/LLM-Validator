@@ -1,0 +1,18 @@
+[project]
+name = "llm-validator"
+version = "0.1.0"
+description = "LLM HTML generation self-correction research pipeline"
+requires-python = ">=3.12"
+dependencies = [
+    "colorama>=0.4.6",
+    "matplotlib>=3.11.0",
+    "ollama>=0.6.2",
+    "pandas>=3.0.3",
+    "requests>=2.34.2",
+    "scipy>=1.18.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

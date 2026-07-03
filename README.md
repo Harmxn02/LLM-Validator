@@ -6,6 +6,31 @@
 - [1 iteratie, werkt gedeeltelijk](#voorbeeld-van-feedback-loop-die-gedeeltelijk-werkt)
 - [**3 iteraties, werkt volledig**](#voorbeeld-van-feedback-loop-met-meerdere-iteraties-die-volledig-werkt)
 
+## Rigorous batch experiments
+
+The sections below document early manual, single-run exploration. For anything
+used as evidence in the research write-up, use the batch pipeline instead —
+it fixes several confounds in the manual flow (random per-run prompts,
+markdown fences leaking into validation, mixed cloud/local validators, no
+repeated trials) and adds a blind-reprompt ablation as a control condition.
+
+```bash
+uv sync                                                   # install deps
+docker run -p 8888:8888 ghcr.io/validator/validator:latest --port 8888
+ollama serve                                              # in another terminal
+
+# edit config/experiment.json to pick models/trials/iterations, then:
+uv run python -m experiments.run_batch                    # sweep model x prompt x trial x condition
+uv run python -m analysis.stats                            # significance tests + summary tables
+uv run python -m analysis.plots                             # convergence/comparison/tradeoff plots
+uv run python -m analysis.check_validator_determinism --html-file some.html  # sanity-check the validator itself
+uv run pytest                                               # unit tests
+```
+
+Every run (each reprompt iteration, for every model/prompt/trial/condition)
+is appended as one row to `results/experiments.csv` for analysis — see
+`util/results_store.py` for the schema.
+
 ## Voorbeeld van feedback-loop die compleet werkt
 
 Bij deze run werden initieel 5 errors gevonden, maar na het toepassen van 1 feedback-loop, zijn alle errors opgelost en zijn er 0 warnings. De feedback-loop lijkt hier dus volledig te werken.

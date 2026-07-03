@@ -2,6 +2,7 @@ import argparse
 import os
 import time
 
+from util.config import LOCAL_VALIDATOR_URL
 from util.generation import generate_html
 from util.pipeline import print_comparison, run_reprompt_loop, validate_and_parse
 from util.print_functions import section_print
@@ -17,11 +18,6 @@ parser.add_argument(
 	help="Skip generation and only validate an existing HTML file.",
 )
 parser.add_argument(
-	"--local",
-	action="store_true",
-	help="Use a local W3C validator in Docker instead of the cloud API.",
-)
-parser.add_argument(
 	"--validate-and-regenerate",
 	nargs="?",
 	type=int,
@@ -32,9 +28,6 @@ parser.add_argument(
 )
 
 args = parser.parse_args()
-
-CLOUD_VALIDATOR = "https://validator.w3.org/nu/?out=json"
-LOCAL_VALIDATOR = "http://localhost:8888/?out=json"  # requires: docker run -p 8888:8888 validator/validator:latest --port 8888
 
 DIRS = {
 	"html": "./html",
@@ -48,7 +41,7 @@ PROMPTS_PATH = "./prompts/prompts.json"
 VALIDATE_ONLY_FILE = "./html/reprompt/generated_2026-03-17_16-25-29.html"
 
 if __name__ == "__main__":
-	validator = LOCAL_VALIDATOR if args.local else CLOUD_VALIDATOR
+	validator = LOCAL_VALIDATOR_URL
 	timestamp = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
 
 	if args.validate_only:

@@ -1,0 +1,17 @@
+{
+  "models": ["gemma3:4b", "qwen3:8b"],
+  "prompts_path": "./prompts/prompts.json",
+  "difficulties": ["simple", "medium", "difficult"],
+  "conditions": ["feedback", "blind"],
+  "trials": 3,
+  "iterations": 3,
+  "temperature": 0.2,
+  "base_seed": 1000,
+  "output_dirs": {
+    "html": "./html/batch",
+    "html_reprompt": "./html/batch/reprompt",
+    "validation": "./validation/batch",
+    "validation_reprompt": "./validation/batch/reprompt"
+  },
+  "results_csv": "./results/experiments.csv"
+}

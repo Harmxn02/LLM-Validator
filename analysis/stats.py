@@ -55,6 +55,52 @@ def _final_iteration_per_run(df: pd.DataFrame, condition: str) -> pd.DataFrame:
 	return subset.sort_values("iteration").groupby("run_id", as_index=False).tail(1)
 
 
+def build_trajectory(df: pd.DataFrame, condition: str, metric: str) -> pd.DataFrame:
+	"""Per (model, run_id) series of `metric` across iterations, with iteration 0
+	taken from the initial generation. Runs that stopped early (0 issues) have
+	their last value carried forward, since that's the true count at later
+	iterations — the loop just had nothing left to fix. Shared by plots.py and
+	the iteration-cutoff analysis below."""
+	initial = df[df["condition"] == "initial"].set_index(["model", "run_id"])[metric]
+	cond_df = df[df["condition"] == condition]
+	pivot = cond_df.pivot_table(index=["model", "run_id"], columns="iteration", values=metric)
+	pivot[0] = initial
+	pivot = pivot.reindex(columns=sorted(pivot.columns))
+	return pivot.ffill(axis=1)
+
+
+def iteration_cutoff_analysis(df: pd.DataFrame, condition: str = "feedback", metric: str = "errors") -> pd.DataFrame:
+	"""For each possible iteration cap N (0..max configured iterations), report
+	the fraction of runs already resolved (metric == 0) and the mean remaining
+	value at that cutoff, per model.
+
+	Directly answers "how many reprompt iterations are actually worth it" from
+	data already collected by a single run_batch sweep — no need to re-run the
+	experiment at different max-iteration configs.
+	"""
+	pivot = build_trajectory(df, condition, metric)
+	max_iter = int(pivot.columns.max())
+
+	rows = []
+	for model in sorted(pivot.index.get_level_values("model").unique()):
+		sub = pivot.xs(model, level="model")
+		for cutoff in range(0, max_iter + 1):
+			if cutoff not in sub.columns:
+				continue
+			values_at_cutoff = sub[cutoff]
+			rows.append(
+				{
+					"model": model,
+					"condition": condition,
+					"iteration_cutoff": cutoff,
+					"n_runs": len(values_at_cutoff),
+					"pct_resolved": round((values_at_cutoff == 0).mean() * 100, 1),
+					"mean_remaining": round(values_at_cutoff.mean(), 3),
+				}
+			)
+	return pd.DataFrame(rows)
+
+
 def summarize_by_model_condition(df: pd.DataFrame) -> pd.DataFrame:
 	finals = pd.concat(
 		[_final_iteration_per_run(df, c) for c in ("feedback", "blind")]
@@ -173,6 +219,13 @@ def main(results_csv: str) -> None:
 
 	print("\n=== Top error categories in initial generations ===")
 	print(top_error_categories(df, "initial").to_string())
+
+	print("\n=== Iteration cutoff analysis — how many reprompts are worth it? ===")
+	for condition in ("feedback", "blind"):
+		result = iteration_cutoff_analysis(df, condition, "errors")
+		if not result.empty:
+			print(f"\n-- {condition} --")
+			print(result.to_string(index=False))
 
 
 if __name__ == "__main__":

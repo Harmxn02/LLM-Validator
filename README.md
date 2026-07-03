@@ -1,13 +1,10 @@
 # LLM-Validator
 
 Research pipeline for the proposal *"Towards Perfect Code Generation: Iterative
-API-based Feedback Loops"*: can a validation-and-regeneration feedback loop
-improve LLM-generated HTML, and does it let smaller/cheaper models close the
-gap to larger ones?
-
-> The original exploratory single-run version of this project (and its
-> README) has been moved to [`deprecated/`](deprecated/README.md). Everything
-> below describes the current, batch-driven pipeline.
+API-based Feedback Loops"*. It evaluates whether an iterative
+validation-and-regeneration feedback loop improves the W3C-defined markup
+correctness of LLM-generated HTML, and whether smaller local models can
+close the gap to larger ones through that loop.
 
 ## How it works
 
@@ -39,21 +36,34 @@ prompts/prompts.json ──▶ experiments/run_batch.py ──▶ results/experi
                          significance tests, CIs, convergence plots
 ```
 
-### Why a batch pipeline instead of one-off runs
+### Design principles
 
-The original approach ran the loop manually, once, per model, on a randomly
-chosen prompt — fine for a demo, not for evidence in a research write-up.
-The batch pipeline exists to remove several confounds from that approach:
-
-| Confound in the manual flow | Fix |
-| --- | --- |
-| Different models/runs saw different random prompts | `iter_prompts()` gives every model the exact same fixed, ordered prompt set |
-| Model output sometimes wrapped in ` ```html ` fences or had explanatory text, which the validator would flag as errors unrelated to actual HTML quality | `clean_html_output()` strips fences/preamble before validation; a system prompt also instructs raw-HTML-only output |
-| No record of temperature/seed — results not reproducible | Every run logs `temperature` and a deterministically-derived `seed` |
-| `--local` flag let cloud and local validators be mixed across a comparison | Pinned to a single local Docker validator (`util/config.py`) |
-| n=1 anecdotes ("this model seems to work better") | `trials` in the config repeats each (model, prompt) combination N times so variance/CIs and significance tests are possible |
-| No control condition — impossible to tell if the validator feedback matters vs. just a second generation attempt | `blind` condition: reprompts without the error list, paired with `feedback` on the same initial HTML |
-| Results scattered across timestamped JSON files, no aggregation | `util/results_store.py` appends one structured CSV row per run/iteration |
+- **Fixed prompt set.** Every model is evaluated on the exact same, ordered
+  set of prompts (`prompts/prompts.json`, 51 prompts across simple/medium/
+  difficult tiers via `iter_prompts()`) — no per-run random sampling, so
+  comparisons across models are apples-to-apples.
+- **Clean generation output.** A system prompt instructs raw-HTML-only
+  output, and `clean_html_output()` defensively strips any markdown fences
+  or explanatory preamble the model adds anyway, before validation — so
+  formatting slip-ups are never counted as HTML errors.
+- **Reproducible runs.** Every run logs its `temperature` and a
+  deterministically-derived `seed` (`experiments/run_batch.py::derive_seed`),
+  so a given config always reproduces the same run matrix.
+- **One validator.** All validation goes through a single local W3C Docker
+  validator (`util/config.py`); `analysis/check_validator_determinism.py`
+  exists to confirm that validator itself returns consistent results before
+  trusting any before/after delta.
+- **Repeated trials.** Each (model, prompt) combination runs `trials` times
+  (config-driven) so variance and confidence intervals are computable
+  instead of relying on single-run anecdotes.
+- **Blind-ablation control.** For a given initial generation, both a
+  `feedback` reprompt (sees the validator's errors) and a `blind` reprompt
+  (told only to "review and fix") are run, so the analysis can isolate how
+  much of any improvement is attributable to the validator feedback itself.
+- **Structured results.** Every iteration of every run is appended as one
+  row to `results/experiments.csv` (`util/results_store.py`) — errors,
+  warnings, infos, an error-category breakdown, generation time, and token
+  counts — instead of one-off JSON files with no aggregation.
 
 ## Repository layout
 
@@ -66,15 +76,15 @@ util/
   prompts.py                   Prompt loading/selection, feedback + blind reprompt construction
   pipeline.py                  generate → validate → reprompt loop, with a per-iteration logging callback
   results_store.py             Structured run-record schema + CSV append/load (pandas)
-  config.py                    Local validator URL (single source of truth, no cloud/local mixing)
+  config.py                    Local validator URL (single source of truth)
 experiments/run_batch.py      Sweeps model x prompt x trial x condition, logs every iteration to results/experiments.csv
 analysis/
-  stats.py                     Mean +/- 95% CI, paired Wilcoxon tests (before/after, feedback vs blind), error-category breakdown
+  stats.py                     Mean +/- 95% CI, paired Wilcoxon tests (before/after, feedback vs blind),
+                                error-category breakdown, iteration-cutoff (quality vs. cost) analysis
   plots.py                     Convergence trajectories, per-model boxplots, cost/quality tradeoff scatter
   check_validator_determinism.py  Re-validates the same file N times to rule out validator noise
 main.py                       Lightweight single-run CLI for manual/ad hoc checks (not used for reported results)
 tests/                        pytest unit tests for the parsing/prompt/results logic
-deprecated/                   Original README from the manual, single-run exploration phase
 ```
 
 ## Running it
@@ -125,12 +135,12 @@ authoritative schema) is one iteration of one run:
 | `was_cleaned` | Whether the raw model output needed fence/preamble stripping |
 | `html_path`, `validation_path` | Where the generated HTML and raw validator JSON were saved |
 
-## Known limitations
+## Scope
 
-This pipeline currently measures **W3C markup-validity** (does the HTML
-conform to the HTML5 spec: doctype, tag nesting, required attributes) — it
-does **not** yet measure the semantic-tag misuse (`<div>` overuse vs.
-`<section>`/`<article>`/`<nav>`) that the underlying research proposal is
-actually about, since the W3C validator does not flag that as an error. See
-the open peer-review discussion for what's being added to close this and
-other gaps.
+**RQ1** is evaluated as: does the feedback loop reduce W3C markup-validity
+errors/warnings (doctype, tag nesting, required attributes, etc.) —
+"code correctness" is defined operationally as validator conformance.
+
+**RQ2** is evaluated as smaller vs. larger *local* Ollama models, using
+generation latency and token counts as the cost proxy — this pipeline does
+not currently include a cloud/API-based model baseline.

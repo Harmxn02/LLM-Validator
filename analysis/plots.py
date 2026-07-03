@@ -17,25 +17,12 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analysis.stats import _final_iteration_per_run
+from analysis.stats import _final_iteration_per_run, build_trajectory
 from util.results_store import load_results
 
 
-def _build_trajectory(df: pd.DataFrame, condition: str, metric: str) -> pd.DataFrame:
-	"""Per (model, run_id) series of `metric` across iterations, with iteration 0
-	taken from the initial generation. Runs that stopped early (0 issues) have
-	their last value carried forward, since that's the true count at later
-	iterations — the loop just had nothing left to fix."""
-	initial = df[df["condition"] == "initial"].set_index(["model", "run_id"])[metric]
-	cond_df = df[df["condition"] == condition]
-	pivot = cond_df.pivot_table(index=["model", "run_id"], columns="iteration", values=metric)
-	pivot[0] = initial
-	pivot = pivot.reindex(columns=sorted(pivot.columns))
-	return pivot.ffill(axis=1)
-
-
 def plot_error_trajectory(df: pd.DataFrame, output_path: str, condition: str, metric: str) -> None:
-	pivot = _build_trajectory(df, condition, metric)
+	pivot = build_trajectory(df, condition, metric)
 
 	fig, ax = plt.subplots(figsize=(8, 5))
 	for model in sorted(pivot.index.get_level_values("model").unique()):

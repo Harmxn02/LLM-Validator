@@ -1,1 +1,0 @@
-Generate a simple HTML page with a heading and a short paragraph. Return only the HTML code, no explanation.

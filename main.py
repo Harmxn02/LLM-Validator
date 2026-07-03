@@ -93,9 +93,10 @@ if __name__ == "__main__":
 
 		section_print("STEP 1 — Generating initial HTML")
 		initial_html_path = f"{DIRS['html']}/generated_{timestamp}.html"
+		prompt = choose_prompt(PROMPTS_PATH)
 		generate_html(
 			model_name=MODEL_NAME,
-			prompt=choose_prompt(PROMPTS_PATH),
+			prompt=prompt["text"],
 			output_path=initial_html_path,
 		)
 
@@ -107,7 +108,7 @@ if __name__ == "__main__":
 		_, final_validation_path = run_reprompt_loop(
 			html_path=initial_html_path,
 			validation_path=initial_validation_path,
-			prompt=choose_prompt(PROMPTS_PATH),
+			prompt=prompt["text"],
 			n_iterations=1,
 			model_name=MODEL_NAME,
 			html_reprompt_dir=DIRS["html_reprompt"],

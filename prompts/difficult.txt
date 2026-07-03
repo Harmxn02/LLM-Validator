@@ -1,1 +1,0 @@
-Generate a HTML page that has the entire periodic table on it, formatted as a table. Return only the HTML code, no explanation.

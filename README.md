@@ -1,296 +1,136 @@
-<!-- markdownlint-disable MD010 -->
+# LLM-Validator
 
-# LLM Generated HTML Code Validator Loop
+Research pipeline for the proposal *"Towards Perfect Code Generation: Iterative
+API-based Feedback Loops"*: can a validation-and-regeneration feedback loop
+improve LLM-generated HTML, and does it let smaller/cheaper models close the
+gap to larger ones?
 
-- [1 iteratie, werkt volledig](#voorbeeld-van-feedback-loop-die-compleet-werkt)
-- [1 iteratie, werkt gedeeltelijk](#voorbeeld-van-feedback-loop-die-gedeeltelijk-werkt)
-- [**3 iteraties, werkt volledig**](#voorbeeld-van-feedback-loop-met-meerdere-iteraties-die-volledig-werkt)
+> The original exploratory single-run version of this project (and its
+> README) has been moved to [`deprecated/`](deprecated/README.md). Everything
+> below describes the current, batch-driven pipeline.
 
-## Rigorous batch experiments
+## How it works
 
-The sections below document early manual, single-run exploration. For anything
-used as evidence in the research write-up, use the batch pipeline instead —
-it fixes several confounds in the manual flow (random per-run prompts,
-markdown fences leaking into validation, mixed cloud/local validators, no
-repeated trials) and adds a blind-reprompt ablation as a control condition.
+```
+                         ┌────────────────────────────┐
+                         │   config/experiment.json    │
+                         │ models, prompts, trials,    │
+                         │ iterations, temperature     │
+                         └──────────────┬───────────────┘
+                                        ▼
+prompts/prompts.json ──▶ experiments/run_batch.py ──▶ results/experiments.csv
+  {id, difficulty,          for each (model, prompt,        one row per
+   text}                     trial):                        (run, iteration)
+                             1. generate initial HTML
+                                (util/generation.py)
+                             2. validate it (util/validation.py
+                                against a local W3C Docker validator)
+                             3. reprompt loop, twice in parallel:
+                                - "feedback": model sees the validator's
+                                  errors (the actual guardrail)
+                                - "blind": model just told to "review and
+                                  fix" (ablation control — isolates how much
+                                  of any improvement is the validator
+                                  feedback itself vs. a second attempt)
+                                stopping early once a run hits 0 issues
+                                        │
+                                        ▼
+                         analysis/stats.py, analysis/plots.py
+                         significance tests, CIs, convergence plots
+```
+
+### Why a batch pipeline instead of one-off runs
+
+The original approach ran the loop manually, once, per model, on a randomly
+chosen prompt — fine for a demo, not for evidence in a research write-up.
+The batch pipeline exists to remove several confounds from that approach:
+
+| Confound in the manual flow | Fix |
+| --- | --- |
+| Different models/runs saw different random prompts | `iter_prompts()` gives every model the exact same fixed, ordered prompt set |
+| Model output sometimes wrapped in ` ```html ` fences or had explanatory text, which the validator would flag as errors unrelated to actual HTML quality | `clean_html_output()` strips fences/preamble before validation; a system prompt also instructs raw-HTML-only output |
+| No record of temperature/seed — results not reproducible | Every run logs `temperature` and a deterministically-derived `seed` |
+| `--local` flag let cloud and local validators be mixed across a comparison | Pinned to a single local Docker validator (`util/config.py`) |
+| n=1 anecdotes ("this model seems to work better") | `trials` in the config repeats each (model, prompt) combination N times so variance/CIs and significance tests are possible |
+| No control condition — impossible to tell if the validator feedback matters vs. just a second generation attempt | `blind` condition: reprompts without the error list, paired with `feedback` on the same initial HTML |
+| Results scattered across timestamped JSON files, no aggregation | `util/results_store.py` appends one structured CSV row per run/iteration |
+
+## Repository layout
+
+```
+config/experiment.json        Batch sweep config: models, prompts, trials, iterations, temperature, seed
+prompts/prompts.json          {id, difficulty, text} — the fixed prompt set (51 prompts, 3 difficulty tiers)
+util/
+  generation.py                Ollama call, HTML-only system prompt, fence/preamble stripping, timing/token capture
+  validation.py                W3C validator call, error/warning/info parsing, error-category taxonomy
+  prompts.py                   Prompt loading/selection, feedback + blind reprompt construction
+  pipeline.py                  generate → validate → reprompt loop, with a per-iteration logging callback
+  results_store.py             Structured run-record schema + CSV append/load (pandas)
+  config.py                    Local validator URL (single source of truth, no cloud/local mixing)
+experiments/run_batch.py      Sweeps model x prompt x trial x condition, logs every iteration to results/experiments.csv
+analysis/
+  stats.py                     Mean +/- 95% CI, paired Wilcoxon tests (before/after, feedback vs blind), error-category breakdown
+  plots.py                     Convergence trajectories, per-model boxplots, cost/quality tradeoff scatter
+  check_validator_determinism.py  Re-validates the same file N times to rule out validator noise
+main.py                       Lightweight single-run CLI for manual/ad hoc checks (not used for reported results)
+tests/                        pytest unit tests for the parsing/prompt/results logic
+deprecated/                   Original README from the manual, single-run exploration phase
+```
+
+## Running it
+
+Prerequisites: [uv](https://docs.astral.sh/uv/), [Ollama](https://ollama.com/)
+running locally, and a local W3C validator container.
 
 ```bash
-uv sync                                                   # install deps
-docker run -p 8888:8888 ghcr.io/validator/validator:latest --port 8888
-ollama serve                                              # in another terminal
+uv sync
 
-# edit config/experiment.json to pick models/trials/iterations, then:
-uv run python -m experiments.run_batch                    # sweep model x prompt x trial x condition
-uv run python -m analysis.stats                            # significance tests + summary tables
-uv run python -m analysis.plots                             # convergence/comparison/tradeoff plots
-uv run python -m analysis.check_validator_determinism --html-file some.html  # sanity-check the validator itself
-uv run pytest                                               # unit tests
+ollama serve                                                          # terminal 1
+docker run -p 8888:8888 ghcr.io/validator/validator:latest --port 8888  # terminal 2
+
+# terminal 3
+uv run pytest                                                          # sanity-check the pipeline first
+uv run python -m analysis.check_validator_determinism --html-file some.html  # optional: confirm the validator is stable
+
+# edit config/experiment.json (models, trials, iterations) for your run, then:
+uv run python -m experiments.run_batch                                # generates results/experiments.csv
+uv run python -m analysis.stats --results-csv results/experiments.csv # tables + significance tests
+uv run python -m analysis.plots --results-csv results/experiments.csv # writes PNGs to plots/
 ```
 
-Every run (each reprompt iteration, for every model/prompt/trial/condition)
-is appended as one row to `results/experiments.csv` for analysis — see
-`util/results_store.py` for the schema.
+For a single manual run (e.g. to sanity-check a new model by hand), `main.py`
+still works and takes the same generation parameters as flags:
 
-## Voorbeeld van feedback-loop die compleet werkt
-
-Bij deze run werden initieel 5 errors gevonden, maar na het toepassen van 1 feedback-loop, zijn alle errors opgelost en zijn er 0 warnings. De feedback-loop lijkt hier dus volledig te werken.
-
-Je kan de volledige output hieronder bekijken, of in dit bestand: [./logs/Full.txt](./logs/Full.txt)
-
-```powershell
-PS C:\Users\Harman\<project_path>\LLM Validator> python main.py --local
-
-==================================================
-STEP 1 — Generating initial HTML
-==================================================
-
-
-HTML saved to ./html/generated_2026-03-17_16-25-29.html
-
-==================================================
-STEP 2 — Validating initial HTML
-==================================================
-
-Validation results saved to ./validation/validation_2026-03-17_16-25-29.json
-==================================================
-Errors:   5
-Warnings: 0
-Info:     0
-==================================================
-
-[ERROR] Line 1, Col 142: Non-space characters found without seeing a doctype first. Expected “<!DOCTYPE html>”.
-[ERROR] Line 1, Col 142: Element “head” is missing a required instance of child element “title”.
-[ERROR] Line 4, Col 15: Stray doctype.
-[ERROR] Line 5, Col 16: Stray start tag “html”.
-[ERROR] Line 5, Col 16: Cannot recover after last error. Any further errors will be ignored.
-
-==================================================
-STEP 3 — Re-generating HTML using validation feedback
-==================================================
-
-
-HTML saved to ./html/reprompt/reprompted_2026-03-17_16-25-29.html
-
-==================================================
-STEP 4 — Validating reprompted HTML
-==================================================
-
-Validation results saved to ./validation/reprompt/validation_reprompted_2026-03-17_16-25-29.json
-==================================================
-Errors:   0
-Warnings: 0
-Info:     0
-==================================================
-
-
-==================================================
-REPROMPT COMPARISON
-==================================================
-Metric         Before    After        Δ
-----------------------------------------
-Errors              5        0       -5
-Warnings            0        0        0
-Infos               0        0        0
-==================================================
-
-PS C:\Users\Harman\<project_path>\LLM Validator>
+```bash
+uv run python main.py --model qwen3:8b --temperature 0.2 --seed 42
+uv run python main.py --validate-only --html-file path/to.html
+uv run python main.py --validate-and-regenerate 3 --html-file path/to.html --blind
 ```
 
-## Voorbeeld van feedback-loop die (gedeeltelijk) werkt
+## Results schema
 
-De code die initieel gegenereerd werd, bevatte 14 errors en 1 warning. Na het toepasses van de feedback-loop, resteren er nog `maar' 5 errors en 0 warnings. De meeste errors zijn na 1 feedback-loop opgelost.
+Every row in `results/experiments.csv` (see `util/results_store.py` for the
+authoritative schema) is one iteration of one run:
 
-- model: `qwen3:8b` using `ollama serve`
-- validator: `docker run -it --rm -p 8888:8888 ghcr.io/validator/validator:latest`
-- run: `python loop.py --local`
-- reprompt logica:
+| Column | Meaning |
+| --- | --- |
+| `run_id` | Identifies the (model, prompt, trial) triple — shared across `initial`/`feedback`/`blind` rows so they can be paired |
+| `condition` | `initial` (before any reprompting), `feedback`, or `blind` |
+| `iteration` | 0 for the initial generation, 1..N for reprompt iterations |
+| `difficulty` | `simple` / `medium` / `difficult`, from the prompt set |
+| `temperature`, `seed` | Generation parameters, for reproducibility |
+| `errors`, `warnings`, `infos` | W3C validator counts |
+| `error_categories` | JSON dict of coarse error categories (missing-doctype, stray-tag, disallowed-attribute, ...) |
+| `gen_time_s`, `prompt_eval_count`, `eval_count` | Generation latency and token counts, for cost/quality tradeoff analysis |
+| `was_cleaned` | Whether the raw model output needed fence/preamble stripping |
+| `html_path`, `validation_path` | Where the generated HTML and raw validator JSON were saved |
 
-    ```python
-    	reprompt = (
-    		f"The following HTML was originally generated for this request:\n"
-    		f"{original_prompt}\n\n"
-    		f"Here is the generated HTML:\n"
-    		f"{html_content}\n\n"
-    		f"The W3C HTML validator reported these issues:\n"
-    		f"{issues_text}\n\n"
-    		f"Please fix every issue listed above and return only the corrected, "
-    		f"complete HTML document. Do not include any explanation or markdown fences."
-    	)
-    ```
+## Known limitations
 
-> [!NOTE]
-> Twee simpele trial-runs met `gemma3:1b` toonde geen verbetering, maar de test met bovenstaande resultaten gebruikte `qwen3:8b`. Ik kan nog niet met zekerheid zeggen waardoor dit verschil komt, wegens het beperkte aantal runs.
-
-Je kan de volledige output hieronder bekijken, of in dit bestand: [./logs/Partial.txt](./logs/Partial.txt)
-
-```powershell
-PS C:\Users\Harman\<project_path>\LLM Validator> python loop.py --local
-
-==================================================
-STEP 1 — Generating initial HTML
-==================================================
-
-
-HTML saved to ./html/reprompt/generated_2026-03-17_15-58-15.html
-
-==================================================
-STEP 2 — Validating initial HTML
-==================================================
-
-Validation results saved to ./validation/reprompt/validation_2026-03-17_15-58-15.json
-==================================================
-Errors:   14
-Warnings: 1
-Info:     0
-==================================================
-
-[ERROR] Line 1, Col 7: Non-space characters found without seeing a doctype first. Expected “<!DOCTYPE html>”.
-[ERROR] Line 1, Col 7: Element “head” is missing a required instance of child element “title”.
-[ERROR] Line 2, Col 15: Stray doctype.
-[ERROR] Line 3, Col 6: Stray start tag “html”.
-[ERROR] Line 4, Col 6: Stray start tag “head”.
-[ERROR] Line 5, Col 9: Element “title” not allowed as child of element “body” in this context. (Suppressing further errors from this subtree.)
-[ERROR] Line 6, Col 24: Attribute “charset” not allowed on element “meta” at this point.
-[ERROR] Line 6, Col 24: Element “meta” is missing one or more of the following attributes: “content”, “itemprop”, “property”.
-[ERROR] Line 7, Col 72: Attribute “name” not allowed on element “meta” at this point.
-[ERROR] Line 7, Col 72: Element “meta” is missing one or more of the following attributes: “itemprop”, “property”.
-[ERROR] Line 8, Col 9: Element “style” not allowed as child of element “body” in this context. (Suppressing further errors from this subtree.)
-[ERROR] Line 57, Col 7: Stray end tag “head”.
-[ERROR] Line 58, Col 6: Start tag “body” seen but an element of the same type was already open.
-[ERROR] Line 101, Col 3: Non-space character in page trailer.
-[WARNING] Line 1, Col 7: This document appears to be written in English. Consider adding “lang="en"” (or variant) to the “html” start tag.
-
-==================================================
-STEP 3 — Re-generating HTML using validation feedback
-==================================================
-
-
-HTML saved to ./html/reprompt/reprompted_2026-03-17_15-58-15.html
-
-==================================================
-STEP 4 — Validating reprompted HTML
-==================================================
-
-Validation results saved to ./validation/reprompt/validation_reprompted_2026-03-17_15-58-15.json
-==================================================
-Errors:   5
-Warnings: 0
-Info:     0
-==================================================
-
-[ERROR] Line 1, Col 7: Non-space characters found without seeing a doctype first. Expected “<!DOCTYPE html>”.
-[ERROR] Line 1, Col 7: Element “head” is missing a required instance of child element “title”.
-[ERROR] Line 2, Col 15: Stray doctype.
-[ERROR] Line 3, Col 16: Stray start tag “html”.
-[ERROR] Line 3, Col 16: Cannot recover after last error. Any further errors will be ignored.
-
-==================================================
-REPROMPT COMPARISON
-==================================================
-Metric         Before    After        Δ
-----------------------------------------
-Errors             14        5       -9
-Warnings            1        0       -1
-Infos               0        0        0
-==================================================
-
-PS C:\Users\Harman\<project_path>\LLM Validator>
-```
-
-## Voorbeeld van feedback-loop, met meerdere iteraties, die volledig werkt
-
-Je kan de volledige output hieronder bekijken, of in dit bestand: [./logs/Full-loop.txt](./logs/Full-loop.txt)
-
-```powershell
-PS C:\Users\Harman\<project_path>\LLM Validator> python main.py --local --validate-and-regenerate 3
-
-==================================================
-STEP 1 — Validating existing HTML
-==================================================
-
-Validation results saved to ./validation/validation_2026-04-07_20-10-22.json
-==================================================
-Errors:   5
-Warnings: 0
-Info:     0
-==================================================
-
-[ERROR] Line 1, Col 142: Non-space characters found without seeing a doctype first. Expected “<!DOCTYPE html>”.
-[ERROR] Line 1, Col 142: Element “head” is missing a required instance of child element “title”.
-[ERROR] Line 4, Col 15: Stray doctype.
-[ERROR] Line 5, Col 16: Stray start tag “html”.
-[ERROR] Line 5, Col 16: Cannot recover after last error. Any further errors will be ignored.
-
-==================================================
-ITERATION 1/3 — Re-generating HTML using validation feedback
-==================================================
-
-
-HTML saved to ./html/reprompt/reprompted_2026-04-07_20-10-22_iter1.html
-
-==================================================
-ITERATION 1/3 — Validating reprompted HTML
-==================================================
-
-Validation results saved to ./validation/reprompt/validation_reprompted_2026-04-07_20-10-22_iter1.json
-==================================================
-Errors:   5
-Warnings: 0
-Info:     0
-==================================================
-
-[ERROR] Line 1, Col 7: Non-space characters found without seeing a doctype first. Expected “<!DOCTYPE html>”.
-[ERROR] Line 1, Col 7: Element “head” is missing a required instance of child element “title”.
-[ERROR] Line 2, Col 15: Stray doctype.
-[ERROR] Line 3, Col 16: Stray start tag “html”.
-[ERROR] Line 3, Col 16: Cannot recover after last error. Any further errors will be ignored.
-
-==================================================
-ITERATION 2/3 — Re-generating HTML using validation feedback
-==================================================
-
-
-HTML saved to ./html/reprompt/reprompted_2026-04-07_20-10-22_iter2.html
-
-==================================================
-ITERATION 2/3 — Validating reprompted HTML
-==================================================
-
-Validation results saved to ./validation/reprompt/validation_reprompted_2026-04-07_20-10-22_iter2.json
-==================================================
-Errors:   0
-Warnings: 0
-Info:     0
-==================================================
-
-
-==================================================
-ITERATION 3/3 — Re-generating HTML using validation feedback
-==================================================
-
-
-HTML saved to ./html/reprompt/reprompted_2026-04-07_20-10-22_iter3.html
-
-==================================================
-ITERATION 3/3 — Validating reprompted HTML
-==================================================
-
-Validation results saved to ./validation/reprompt/validation_reprompted_2026-04-07_20-10-22_iter3.json
-==================================================
-Errors:   0
-Warnings: 0
-Info:     0
-==================================================
-
-
-==================================================
-REPROMPT COMPARISON (after 3 iteration(s))
-==================================================
-
-Metric         Before    After        Δ
-----------------------------------------
-Errors              5        0       -5
-Warnings            0        0        0
-Infos               0        0        0
-==================================================
-```
+This pipeline currently measures **W3C markup-validity** (does the HTML
+conform to the HTML5 spec: doctype, tag nesting, required attributes) — it
+does **not** yet measure the semantic-tag misuse (`<div>` overuse vs.
+`<section>`/`<article>`/`<nav>`) that the underlying research proposal is
+actually about, since the W3C validator does not flag that as an error. See
+the open peer-review discussion for what's being added to close this and
+other gaps.

@@ -81,7 +81,8 @@ experiments/run_batch.py      Sweeps model x prompt x trial x condition, logs ev
 analysis/
   stats.py                     Mean +/- 95% CI, paired Wilcoxon tests (before/after, feedback vs blind),
                                 error-category breakdown, iteration-cutoff (quality vs. cost) analysis
-  plots.py                     Convergence trajectories, per-model boxplots, cost/quality tradeoff scatter
+  plots.py                     Convergence trajectories, per-model/condition distributions, cost/quality
+                                and model-size-vs-cost/quality scatters (colour = reasoning, size = params)
   check_validator_determinism.py  Re-validates the same file N times to rule out validator noise
 main.py                       Lightweight single-run CLI for manual/ad hoc checks (not used for reported results)
 tests/                        pytest unit tests for the parsing/prompt/results logic

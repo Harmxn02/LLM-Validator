@@ -11,3 +11,7 @@ __pycache__/
 
 # json files
 *.json
+
+# except for the config files
+!config/*.json
+!prompts/prompts.json

@@ -69,6 +69,7 @@ prompts/prompts.json ──▶ experiments/run_batch.py ──▶ results/experi
 
 ```
 config/experiment.json        Batch sweep config: models, prompts, trials, iterations, temperature, seed
+config/model_info.json        Manually curated per-model metadata (reasoning capacity, parameter count) for plots.py
 prompts/prompts.json          {id, difficulty, text} — the fixed prompt set (51 prompts, 3 difficulty tiers)
 util/
   generation.py                Ollama call, HTML-only system prompt, fence/preamble stripping, timing/token capture

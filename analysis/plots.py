@@ -6,6 +6,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import sys
 
@@ -21,6 +22,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from analysis.stats import _final_iteration_per_run, build_trajectory
 from util.results_store import load_results
+
+MODEL_INFO_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "model_info.json"
+)
 
 # One shared theme for every figure in this module, so a reader flipping
 # between plots sees one consistent visual system rather than a new style
@@ -40,22 +45,38 @@ plt.rcParams.update(
     }
 )
 
-# Static metadata about each local model, since it isn't derivable from the
-# results CSV. Feed this into plot_cost_quality() / the model-size plots.
-# billion_params is total (on-disk) parameter count; "e4b"-style Gemma names
-# denote an effective active-parameter subset of a larger MatFormer network,
-# but the on-disk count is used here for an apples-to-apples x-axis. Models
-# missing from this dict are silently dropped from the plots that need it.
-MODEL_INFO = {
-    "smollm2:135m": {"reasoning": False, "billion_params": 0.135},
-    "gemma3:1b": {"reasoning": False, "billion_params": 1.0},
-    "gemma4:e4b": {"reasoning": False, "billion_params": 8.0},
-    "qwen3:8b": {"reasoning": True, "billion_params": 8.19},
-    "qwen2.5-coder:14b": {"reasoning": False, "billion_params": 14.8},
-    "qwen3.5:9b": {"reasoning": True, "billion_params": 9.65},
-}
+def _load_model_info(path: str = MODEL_INFO_PATH) -> dict:
+    """Static metadata about each local model, since it isn't derivable from
+    the results CSV (config/model_info.json). billion_params is total
+    (on-disk) parameter count; "e4b"-style Gemma names denote an effective
+    active-parameter subset of a larger MatFormer network, but the on-disk
+    count is used here for an apples-to-apples x-axis. Models missing from
+    this file are silently dropped from the plots that need it."""
+    with open(path) as f:
+        return json.load(f)
 
-REASONING_PALETTE = {"Reasoning": "#d95f02", "No reasoning": "#1b9e77"}
+
+MODEL_INFO = _load_model_info()
+
+# tab10's blue/red, reused here so "reasoning" reads as the same blue and
+# "no reasoning" the same red across every plot that shows it.
+REASONING_PALETTE = {"Reasoning": "#1f77b4", "No reasoning": "#d62728"}
+
+# Parameter count is shown as a binned category rather than a continuous size
+# so that models of essentially the same size (e.g. 8.0B and 8.19B) render as
+# the same dot size instead of two arbitrarily-different ones.
+PARAM_BIN_ORDER = ["<1B", "1-5B", "6-10B", ">10B"]
+PARAM_BIN_SIZES = {"<1B": 90, "1-5B": 200, "6-10B": 340, ">10B": 500}
+
+
+def _param_bin(billion_params: float) -> str:
+    if billion_params < 1:
+        return "<1B"
+    if billion_params <= 5:
+        return "1-5B"
+    if billion_params <= 10:
+        return "6-10B"
+    return ">10B"
 
 
 def _model_palette(models: list[str]) -> dict:
@@ -72,7 +93,21 @@ def _with_model_info(per_model: pd.DataFrame) -> pd.DataFrame:
     merged["reasoning_label"] = merged["reasoning"].map(
         {True: "Reasoning", False: "No reasoning"}
     )
+    merged["param_bin"] = pd.Categorical(
+        merged["billion_params"].map(_param_bin), categories=PARAM_BIN_ORDER, ordered=True
+    )
     return merged
+
+
+def _add_trend_line(ax, x: pd.Series, y: pd.Series) -> None:
+    """Grey dashed least-squares fit, shared by every scatterplot in this
+    module. Skipped when there aren't at least 2 distinct x values, since a
+    line through one point (or a vertical stack of points) isn't meaningful."""
+    if len(x) < 2 or x.nunique() < 2:
+        return
+    coeffs = np.polyfit(x, y, 1)
+    xs = np.linspace(x.min(), x.max(), 50)
+    ax.plot(xs, np.polyval(coeffs, xs), color="0.6", linestyle="--", linewidth=1.5, zorder=1)
 
 
 def plot_error_trajectory(df: pd.DataFrame, output_path: str, metric: str) -> None:
@@ -232,28 +267,26 @@ def plot_cost_quality(df: pd.DataFrame, output_path: str, metric: str) -> None:
     """Mean total generation time (initial + feedback reprompts) per run vs
     mean final error count, one point per model — a faster model that
     self-corrects worse is a real tradeoff, not a strictly worse choice.
-    Colour encodes reasoning capacity and point size encodes parameter count,
-    so all three axes of "which model should I use" (speed, quality, cost of
-    running it) show up in one figure. A grey dashed trend line (manual
-    least-squares fit) replaces the old regplot, since regplot can't drive
-    hue/size mappings itself."""
+    Colour encodes reasoning capacity and point size encodes a binned
+    parameter-count range, so all three axes of "which model should I use"
+    (speed, quality, size) show up in one figure."""
     per_model = _with_model_info(_per_model_cost_quality(df, metric))
+    plot_df = per_model.rename(
+        columns={"reasoning_label": "Reasoning capacity", "param_bin": "Parameters"}
+    )
 
     fig, ax = plt.subplots(figsize=(7.5, 5.5))
-
-    if len(per_model) >= 2:
-        coeffs = np.polyfit(per_model["mean_time"], per_model["mean_metric"], 1)
-        xs = np.linspace(per_model["mean_time"].min(), per_model["mean_time"].max(), 50)
-        ax.plot(xs, np.polyval(coeffs, xs), color="0.6", linestyle="--", linewidth=1.5, zorder=1)
+    _add_trend_line(ax, per_model["mean_time"], per_model["mean_metric"])
 
     sns.scatterplot(
-        data=per_model,
+        data=plot_df,
         x="mean_time",
         y="mean_metric",
-        hue="reasoning_label",
+        hue="Reasoning capacity",
         palette=REASONING_PALETTE,
-        size="billion_params",
-        sizes=(90, 550),
+        size="Parameters",
+        sizes=PARAM_BIN_SIZES,
+        size_order=PARAM_BIN_ORDER,
         alpha=0.85,
         edgecolor="white",
         linewidth=0.8,
@@ -273,7 +306,7 @@ def plot_cost_quality(df: pd.DataFrame, output_path: str, metric: str) -> None:
     ax.set_ylabel(f"Mean final {metric} (feedback condition)")
     ax.set_title("Cost vs quality tradeoff")
     ax.grid(alpha=0.3)
-    ax.legend(title="", loc="upper left", bbox_to_anchor=(1.02, 1), borderaxespad=0)
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1), borderaxespad=0)
     sns.despine(fig)
     fig.tight_layout()
     fig.savefig(output_path, bbox_inches="tight")
@@ -284,19 +317,23 @@ def _plot_model_size_scatter(
     df: pd.DataFrame, output_path: str, metric: str, y_col: str, y_label: str, title: str
 ) -> None:
     per_model = _with_model_info(_per_model_cost_quality(df, metric))
+    plot_df = per_model.rename(columns={"reasoning_label": "Reasoning capacity"})
 
     fig, ax = plt.subplots(figsize=(7, 5.5))
+    _add_trend_line(ax, per_model["billion_params"], per_model[y_col])
+
     sns.scatterplot(
-        data=per_model,
+        data=plot_df,
         x="billion_params",
         y=y_col,
-        hue="reasoning_label",
-        style="reasoning_label",
+        hue="Reasoning capacity",
+        style="Reasoning capacity",
         palette=REASONING_PALETTE,
         s=180,
         edgecolor="white",
         linewidth=0.8,
         ax=ax,
+        zorder=2,
     )
     for _, row in per_model.iterrows():
         ax.annotate(

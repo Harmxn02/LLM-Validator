@@ -69,7 +69,7 @@ prompts/prompts.json ──▶ experiments/run_batch.py ──▶ results/experi
 
 ```
 config/experiment.json        Batch sweep config: models, prompts, trials, iterations, temperature, seed
-config/model_info.json        Manually curated per-model metadata (reasoning capacity, parameter count) for plots.py
+config/model_info.json        Manually curated per-model metadata (native thinking mode, parameter count) for plots.py
 prompts/prompts.json          {id, difficulty, text} — the fixed prompt set (51 prompts, 3 difficulty tiers)
 util/
   generation.py                Ollama call, HTML-only system prompt, fence/preamble stripping, timing/token capture
@@ -82,8 +82,9 @@ experiments/run_batch.py      Sweeps model x prompt x trial x condition, logs ev
 analysis/
   stats.py                     Mean +/- 95% CI, paired Wilcoxon tests (before/after, feedback vs blind),
                                 error-category breakdown, iteration-cutoff (quality vs. cost) analysis
-  plots.py                     Convergence trajectories, per-model/condition distributions, cost/quality
-                                and model-size-vs-cost/quality scatters (colour = reasoning, size = params)
+  plots.py                     Convergence trajectories, final-error bar chart by model/condition, cost/quality
+                                and model-size-vs-cost/quality scatters (colour = native thinking mode, size = params),
+                                each with an R2/data-driven subtitle
   check_validator_determinism.py  Re-validates the same file N times to rule out validator noise
 main.py                       Lightweight single-run CLI for manual/ad hoc checks (not used for reported results)
 tests/                        pytest unit tests for the parsing/prompt/results logic

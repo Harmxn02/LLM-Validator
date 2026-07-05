@@ -1,0 +1,1 @@
+[188/306] qwen3:8b | p25 (simple) | trial 2 | seed=59728

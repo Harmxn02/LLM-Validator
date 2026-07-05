@@ -42,8 +42,8 @@ MODEL_INFO_PATH = os.path.join(
 sns.set_theme(style="whitegrid", context="notebook", font_scale=1.05)
 plt.rcParams.update(
     {
-        "figure.dpi": 150,
-        "savefig.dpi": 150,
+        "figure.dpi": 300,
+        "savefig.dpi": 300,
         "font.family": "sans-serif",
         "font.sans-serif": [
             "Helvetica Neue",

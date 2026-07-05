@@ -1,38 +1,26 @@
+# * COMPLETED
 smollm2:135m:
-  native_thinking_mode: false
-  billion_params: 0.135
+    native_thinking_mode: false
+    billion_params: 0.135
 
 gemma4:e4b:
-  native_thinking_mode: true
-  billion_params: 8.0
+    native_thinking_mode: true
+    billion_params: 8.0
 
-# to be used in future experiments
-deepseek-coder:6.7b:
-  native_thinking_mode: true
-  billion_params: 6.7
+gemma3:1b:
+    native_thinking_mode: false
+    billion_params: 1.0
 
 codestral:22b:
-  native_thinking_mode: false
-  billion_params: 22
+    native_thinking_mode: false
+    billion_params: 22
 
 qwen2.5-coder:14b:
-  native_thinking_mode: false
-  billion_params: 14.8
+    native_thinking_mode: false
+    billion_params: 14.8
 
-# not really used fully, but I should
-# gemma3:1b:
-#   native_thinking_mode: false
-#   billion_params: 1.0
-# qwen3:8b:
-#   native_thinking_mode: true
-#   billion_params: 8.19
-
-# not used
-# gemma4:e2b:
-#   native_thinking_mode: true
-#   billion_params: 5.12
-# qwen3.5:9b:
-#   native_thinking_mode: true
-#   billion_params: 9.65
+qwen3:4b-thinking:
+    native_thinking_mode: true
+    billion_params: 4.0
 
 # TODO: verify the above data is correct

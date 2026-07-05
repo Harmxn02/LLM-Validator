@@ -5,9 +5,11 @@ description = "LLM HTML generation self-correction research pipeline"
 requires-python = ">=3.12"
 dependencies = [
     "colorama>=0.4.6",
+    "json5>=0.15.0",
     "matplotlib>=3.11.0",
     "ollama>=0.6.2",
     "pandas>=3.0.3",
+    "pyyaml>=6.0.3",
     "requests>=2.34.2",
     "scipy>=1.18.0",
     "seaborn>=0.13.2",

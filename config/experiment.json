@@ -1,5 +1,5 @@
 {
-  "models": ["gemma4:e4b", "qwen3:8b"],
+  "models": ["deepseek-coder:6.7b", "qwen2.5-coder:14b", "codestral:22b"],
   "prompts_path": "./prompts/prompts.json",
   "difficulties": ["simple", "medium", "difficult"],
   "conditions": ["feedback", "blind"],

@@ -6,11 +6,11 @@ Usage:
 """
 
 import argparse
-import json
 import os
 import sys
 
 import matplotlib
+import yaml
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -30,7 +30,7 @@ from util.results_store import load_results
 MODEL_INFO_PATH = os.path.join(
 	os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
 	"config",
-	"model_info.json",
+	"model_info.yaml",
 )
 
 # One shared theme for every figure in this module, so a reader flipping
@@ -72,7 +72,7 @@ DEFAULT_PALETTE = sns.color_palette()
 # so that models of essentially the same size (e.g. 8.0B and 8.19B) render as
 # the same dot size instead of two arbitrarily-different ones.
 PARAM_BIN_ORDER = ["<1B", "1-5B", "6-10B", ">10B"]
-PARAM_BIN_SIZES = {"<1B": 90, "1-5B": 200, "6-10B": 340, ">10B": 500}
+PARAM_BIN_SIZES = {"<1B": 30, "1-5B": 90, "6-10B": 240, ">10B": 300}
 
 CONDITION_ORDER = ["initial", "feedback", "blind"]
 
@@ -81,7 +81,7 @@ THINKING_LABELS = {True: "Thinking mode", False: "No thinking mode"}
 
 def _load_model_info(path: str = MODEL_INFO_PATH) -> dict:
 	"""Static per-model metadata that isn't derivable from the results CSV
-	(config/model_info.json): billion_params (total, on-disk parameter count)
+	(config/model_info.yaml): billion_params (total, on-disk parameter count)
 	and native_thinking_mode.
 
 	native_thinking_mode means the model ships with a documented, toggleable
@@ -95,7 +95,7 @@ def _load_model_info(path: str = MODEL_INFO_PATH) -> dict:
 	are silently dropped from the plots that need it.
 	"""
 	with open(path) as f:
-		return json.load(f)
+		return yaml.safe_load(f)
 
 
 MODEL_INFO = _load_model_info()

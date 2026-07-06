@@ -33,11 +33,11 @@ def check_prompt_completion(df, min_prompt=1, max_prompt=51):
 
 		if not missing:
 			pass
-			# print(f"✅ {model}")
+			print(f"✅ {model}")
 		else:
 			print(
-				f"{model}\t{pct:.1f}% ({n_found}/51)"
-				# f"❌ {model}\t\t{pct:.1f}% complete\t\tMissing prompts: {len(missing)}/51"
+				# f"{model}\t{pct:.1f}% ({n_found}/51)"
+				f"❌ {model}\t\t{pct:.1f}% ({n_found}/51"
 			)
 
 		rows.append(

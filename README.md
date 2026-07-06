@@ -63,7 +63,7 @@ prompts/prompts.json ──▶ experiments/run_batch.py ──▶ results/experi
 - **Structured results.** Every iteration of every run is appended as one
   row to `results/experiments.csv` (`util/results_store.py`) — errors,
   warnings, infos, an error-category breakdown, generation time, and token
-  counts — instead of one-off JSON files with no aggregation.
+  counts.
 
 ## Repository layout
 
@@ -115,8 +115,7 @@ uv run python -m analysis.plots --results-csv results/experiments.csv # writes P
 `--models` (comma-separated) overrides the config's `models` list for that
 invocation — useful for adding models to an existing `results/experiments.csv`
 one (or a few) at a time. Runs always *append* to the results CSV rather than
-overwrite it, so re-running with a model that's already in there produces
-duplicate rows — only pass models you haven't run yet.
+overwrite it. Re-running models that have already been partially ran, results in those specific trials being skipped, so you can stop/start the script at any time without losing progress.
 
 For a single manual run (e.g. to sanity-check a new model by hand), `main.py`
 still works and takes the same generation parameters as flags:

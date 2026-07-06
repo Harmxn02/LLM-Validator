@@ -1,7 +1,7 @@
-def check_prompt_completion(df, min_prompt=1, max_prompt=50):
+def check_prompt_completion(df, min_prompt=1, max_prompt=51):
 	"""
 	Check, for each unique model, whether prompts min_prompt to max_prompt
-	are all present in the 'prompt_id' column (e.g. 'p1' to 'p50').
+	are all present in the 'prompt_id' column (e.g. 'p1' to 'p51').
 
 	Prints a line per model in the form:
 	{MODEL_NAME}: fully completed ✅
@@ -14,7 +14,7 @@ def check_prompt_completion(df, min_prompt=1, max_prompt=50):
 	min_prompt : int
 		Lowest prompt number expected (default 1).
 	max_prompt : int
-		Highest prompt number expected (default 50).
+		Highest prompt number expected (default 51).
 
 	Returns
 	-------
@@ -32,10 +32,12 @@ def check_prompt_completion(df, min_prompt=1, max_prompt=50):
 		pct = 100 * n_found / len(expected_prompts)
 
 		if not missing:
-			print(f"✅ {model}")
+			pass
+			# print(f"✅ {model}")
 		else:
 			print(
-				f"❌ {model}\t\t{pct:.1f}% complete\t\tMissing prompts: {len(missing)}/50"
+				f"{model}\t{pct:.1f}% ({n_found}/51)"
+				# f"❌ {model}\t\t{pct:.1f}% complete\t\tMissing prompts: {len(missing)}/51"
 			)
 
 		rows.append(

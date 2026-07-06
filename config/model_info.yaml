@@ -1,6 +1,6 @@
-smollm2:135m:
-    native_thinking_mode: false
-    billion_params: 0.135
+# smollm2:135m:
+#     native_thinking_mode: false
+#     billion_params: 0.135
 
 gemma4:e4b:
     native_thinking_mode: true

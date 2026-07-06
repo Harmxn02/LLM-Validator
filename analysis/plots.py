@@ -72,7 +72,7 @@ DEFAULT_PALETTE = sns.color_palette()
 # so that models of essentially the same size (e.g. 8.0B and 8.19B) render as
 # the same dot size instead of two arbitrarily-different ones.
 PARAM_BIN_ORDER = ["<1B", "1-5B", "6-10B", ">10B"]
-PARAM_BIN_SIZES = {"<1B": 30, "1-5B": 90, "6-10B": 240, ">10B": 300}
+PARAM_BIN_SIZES = {"<1B": 33, "1-5B": 100, "6-10B": 200, ">10B": 400}
 
 CONDITION_ORDER = ["initial", "feedback", "blind"]
 
@@ -218,6 +218,7 @@ def plot_error_trajectory(df: pd.DataFrame, output_path: str, metric: str) -> No
 	feedback and blind conditions shown as side-by-side panels sharing a
 	y-axis so the two correction strategies are directly comparable. Shaded
 	SEM bands replace errorbars for a calmer read when lines overlap."""
+	df = df[df["model"].isin(MODEL_INFO)]
 	conditions = ["feedback", "blind"]
 	models = sorted(df["model"].unique())
 	colours = _model_palette(models)
@@ -294,6 +295,7 @@ def plot_final_summary_bars(df: pd.DataFrame, output_path: str, metric: str) -> 
 	layout runs out of room per model well before that; the full per-run
 	distribution this collapses is better suited to a table than a plot
 	anyway once there are many models."""
+	df = df[df["model"].isin(MODEL_INFO)]
 	summary = summarize_by_model_condition(df)
 	summary = summary[summary["metric"] == metric]
 	models = sorted(summary["model"].unique())
@@ -327,7 +329,7 @@ def plot_final_summary_bars(df: pd.DataFrame, output_path: str, metric: str) -> 
 		)
 
 	ax.set_xticks(x)
-	ax.set_xticklabels(models, rotation=20, ha="right")
+	ax.set_xticklabels(models, rotation=0, ha="right")
 	ax.set_ylabel(f"Mean final {metric} (95% CI)")
 	ax.grid(alpha=0.3, axis="y")
 	_style_legend(ax.legend(title="Condition"))

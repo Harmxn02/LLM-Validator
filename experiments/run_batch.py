@@ -25,7 +25,7 @@ from util.generation import generate_html
 from util.pipeline import run_reprompt_loop, validate_and_parse
 from util.print_functions import section_print
 from util.prompts import iter_prompts
-from util.results_store import append_run_record, make_run_record
+from util.results_store import append_run_record, load_results, make_run_record
 
 
 def derive_seed(base_seed: int, *parts: str) -> int:
@@ -50,6 +50,34 @@ def load_config(path: str) -> dict:
         return json.load(f)
 
 
+def load_completed_run_ids(results_csv: str, conditions: list[str]) -> set[str]:
+    """Which (model, prompt, trial) run_ids already have a full set of
+    results logged in results_csv, so a re-run after being stopped partway
+    through can skip straight past them instead of re-generating and
+    duplicating rows.
+
+    A run_id counts as complete if its initial generation was already
+    perfect (matching run_batch's own early-exit, in which case no reprompt
+    rows are ever written) or if every configured condition has at least one
+    logged iteration.
+    """
+    if not os.path.exists(results_csv):
+        return set()
+
+    df = load_results(results_csv)
+    completed = set()
+    for run_id, group in df.groupby("run_id"):
+        initial = group[group["condition"] == "initial"]
+        if initial.empty:
+            continue
+        already_perfect = bool(
+            (initial[["errors", "warnings", "infos"]] == 0).all(axis=None)
+        )
+        if already_perfect or set(conditions) <= set(group["condition"].unique()):
+            completed.add(run_id)
+    return completed
+
+
 def run_batch(config: dict, dry_run: bool = False) -> None:
     models = config["models"]
     difficulties = config["difficulties"]
@@ -69,6 +97,7 @@ def run_batch(config: dict, dry_run: bool = False) -> None:
 
     total_runs = len(models) * len(prompts) * trials
     planned = 0
+    completed_run_ids = load_completed_run_ids(results_csv, conditions)
 
     if not dry_run:
         for d in dirs.values():
@@ -80,6 +109,12 @@ def run_batch(config: dict, dry_run: bool = False) -> None:
                 planned += 1
                 run_key = f"{safe_name(model)}_{prompt['id']}_t{trial}"
                 seed = derive_seed(base_seed, model, prompt["id"], trial)
+
+                if run_key in completed_run_ids:
+                    section_print(
+                        f"[{planned}/{total_runs}] {model} | {prompt['id']} ({prompt['difficulty']}) | trial {trial} — already completed, skipping"
+                    )
+                    continue
 
                 section_print(
                     f"[{planned}/{total_runs}] {model} | {prompt['id']} ({prompt['difficulty']}) | trial {trial} | seed={seed}"

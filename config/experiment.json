@@ -1,5 +1,5 @@
 {
-	"models": ["gemma4:e4b", "gemma3:1b", "smollm2:135m", "qwen3:4b-thinking", "qwen2.5-coder:14b", "codestral:22b"],
+	"models": ["gemma4:e4b", "gemma3:1b", "smollm2:135m", "qwen3:4b-thinking", "qwen2.5-coder:14b", "codestral:22b", "deepseek-coder:6.7b"],
 	"prompts_path": "./prompts/prompts.json",
 	"difficulties": ["simple", "medium", "difficult"],
 	"conditions": ["feedback", "blind"],

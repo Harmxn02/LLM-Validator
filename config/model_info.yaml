@@ -1,15 +1,14 @@
-# * COMPLETED
 smollm2:135m:
     native_thinking_mode: false
     billion_params: 0.135
 
 gemma4:e4b:
     native_thinking_mode: true
-    billion_params: 8.0
+    billion_params: 8
 
 gemma3:1b:
     native_thinking_mode: false
-    billion_params: 1.0
+    billion_params: 1
 
 codestral:22b:
     native_thinking_mode: false
@@ -21,6 +20,8 @@ qwen2.5-coder:14b:
 
 qwen3:4b-thinking:
     native_thinking_mode: true
-    billion_params: 4.0
+    billion_params: 4
 
-# TODO: verify the above data is correct
+deepseek-coder:6.7b:
+    native_thinking_mode: false
+    billion_params: 6.7

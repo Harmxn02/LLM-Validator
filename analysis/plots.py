@@ -10,7 +10,6 @@ import os
 import sys
 
 import matplotlib
-import yaml
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -21,17 +20,15 @@ import seaborn as sns
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from analysis.stats import (
+	DIFFICULTY_ORDER,
 	_final_iteration_per_run,
 	build_trajectory,
+	iterations_to_convergence,
+	summarize_by_difficulty_condition,
 	summarize_by_model_condition,
 )
+from util.model_info import load_model_info
 from util.results_store import load_results
-
-MODEL_INFO_PATH = os.path.join(
-	os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-	"config",
-	"model_info.yaml",
-)
 
 # One shared theme for every figure in this module, so a reader flipping
 # between plots sees one consistent visual system rather than a new style
@@ -78,27 +75,10 @@ CONDITION_ORDER = ["initial", "feedback", "blind"]
 
 THINKING_LABELS = {True: "Thinking mode", False: "No thinking mode"}
 
-
-def _load_model_info(path: str = MODEL_INFO_PATH) -> dict:
-	"""Static per-model metadata that isn't derivable from the results CSV
-	(config/model_info.yaml): billion_params (total, on-disk parameter count)
-	and native_thinking_mode.
-
-	native_thinking_mode means the model ships with a documented, toggleable
-	extended-thinking / chain-of-thought mode (e.g. Qwen3's hybrid thinking
-	mode) — a specific, checkable architectural feature, unlike the vaguer
-	"does this model reason" framing. Confirmed for qwen3:8b, qwen2.5-coder:14b,
-	qwen3.5:9b, and gemma4:e2b against this project's own testing notes
-	(Models.md); gemma4:e4b is inferred from e2b by architecture family
-	(Gemma's MatFormer e2b/e4b variants share training); gemma3:1b and
-	smollm2:135m are unverified best guesses. Models missing from this file
-	are silently dropped from the plots that need it.
-	"""
-	with open(path) as f:
-		return yaml.safe_load(f)
-
-
-MODEL_INFO = _load_model_info()
+# Models missing from config/model_info.yaml (e.g. smollm2:135m) are silently
+# dropped from every plot that needs reasoning-mode/parameter-count metadata —
+# a deliberate exclusion, not an oversight.
+MODEL_INFO = load_model_info()
 
 
 def _param_bin(billion_params: float) -> str:
@@ -213,11 +193,31 @@ def _safe_pct_diff(a: float, b: float) -> float:
 	return (b - a) / b * 100 if b else 0.0
 
 
+def _label_offset(ax, x: float, y: float) -> tuple[tuple[float, float], str]:
+	"""Offset (in points) and horizontal alignment for an annotated point
+	label. The top-right corner of every scatterplot in this module is where
+	the legend sits, so a point that falls there gets its label nudged to the
+	bottom-left instead of the default top-right — otherwise the label and
+	the legend box collide (as happened for gemma4:e4b in the cost/quality
+	plot)."""
+	xlim, ylim = ax.get_xlim(), ax.get_ylim()
+	x_frac = (x - xlim[0]) / (xlim[1] - xlim[0])
+	y_frac = (y - ylim[0]) / (ylim[1] - ylim[0])
+	if x_frac > 0.6 and y_frac > 0.6:
+		return (-8, -12), "right"
+	return (8, 6), "left"
+
+
 def plot_error_trajectory(df: pd.DataFrame, output_path: str, metric: str) -> None:
 	"""Mean metric vs reprompt iteration, one coloured line per model, with the
 	feedback and blind conditions shown as side-by-side panels sharing a
 	y-axis so the two correction strategies are directly comparable. Shaded
-	SEM bands replace errorbars for a calmer read when lines overlap."""
+	SEM bands replace errorbars for a calmer read when lines overlap.
+
+	The y-axis uses a symlog scale: per-run means range from ~0 (several
+	models resolve to zero) to several dozen (initial generations from the
+	weakest model), and a linear scale squashes every model except the
+	extreme one into an indistinguishable band near zero."""
 	df = df[df["model"].isin(MODEL_INFO)]
 	conditions = ["feedback", "blind"]
 	models = sorted(df["model"].unique())
@@ -237,29 +237,30 @@ def plot_error_trajectory(df: pd.DataFrame, output_path: str, metric: str) -> No
 				marker="o",
 				markersize=5.5,
 				linewidth=2,
-				label=model,
+				label=f"{model} (n={len(sub)})",
 				color=colours[model],
 			)
 			ax.fill_between(
 				means.index,
-				means.values - sems.values,
+				np.clip(means.values - sems.values, 0, None),
 				means.values + sems.values,
 				color=colours[model],
 				alpha=0.18,
 				linewidth=0,
 			)
 		ax.set_xlabel("Reprompt iteration (0 = initial generation)")
+		ax.set_yscale("symlog", linthresh=1)
 		ax.set_title(f"{condition.capitalize()} condition")
 		ax.grid(alpha=0.3)
 
-	axes[0].set_ylabel(metric.capitalize())
+	axes[0].set_ylabel(f"{metric.capitalize()} (symlog scale)")
 	handles, labels = axes[0].get_legend_handles_labels()
 	fig.legend(
 		handles,
 		labels,
 		loc="upper center",
-		ncol=len(labels),
-		bbox_to_anchor=(0.5, 1.05),
+		ncol=3,
+		bbox_to_anchor=(0.5, 1.14),
 	)
 
 	fb_mean = _final_iteration_per_run(df, "feedback")[metric].mean()
@@ -275,12 +276,12 @@ def plot_error_trajectory(df: pd.DataFrame, output_path: str, metric: str) -> No
 
 	fig.suptitle(
 		f"{metric.capitalize()} vs reprompt iteration",
-		y=1.22,
+		y=1.34,
 		fontsize=15,
 		fontweight="bold",
 	)
 	fig.text(
-		0.5, 1.13, subtitle, ha="center", fontsize=10, style="italic", color="0.35"
+		0.5, 1.24, subtitle, ha="center", fontsize=10, style="italic", color="0.35"
 	)
 	sns.despine(fig)
 	fig.tight_layout()
@@ -305,6 +306,10 @@ def plot_final_summary_bars(df: pd.DataFrame, output_path: str, metric: str) -> 
 	fig, ax = plt.subplots(figsize=(max(8.0, 1.8 * len(models) + 3), 5.5))
 	x = np.arange(len(models))
 	width = 0.8 / max(len(conditions), 1)
+	# A zero-height bar (a model that fully resolves) would otherwise be
+	# invisible against the axis, so every bar gets its mean value (and n)
+	# printed above it regardless of height.
+	label_pad = summary["ci_high"].max() * 0.03 if not summary.empty else 0.05
 
 	for i, condition in enumerate(conditions):
 		sub = (
@@ -327,11 +332,23 @@ def plot_final_summary_bars(df: pd.DataFrame, output_path: str, metric: str) -> 
 			edgecolor="white",
 			linewidth=0.6,
 		)
+		for xi, mean, hi_err, n in zip(offsets, means, hi, sub["n"].to_numpy()):
+			if np.isnan(mean):
+				continue
+			ax.annotate(
+				f"{mean:.2f}\n(n={int(n)})",
+				(xi, mean + hi_err + label_pad),
+				ha="center",
+				va="bottom",
+				fontsize=7.5,
+				color="0.3",
+			)
 
 	ax.set_xticks(x)
 	ax.set_xticklabels(models, rotation=0, ha="right")
 	ax.set_ylabel(f"Mean final {metric} (95% CI)")
 	ax.grid(alpha=0.3, axis="y")
+	ax.margins(y=0.18)  # headroom for the value/n annotations above each bar
 	_style_legend(ax.legend(title="Condition"))
 
 	if not summary.empty:
@@ -407,12 +424,14 @@ def plot_cost_quality(df: pd.DataFrame, output_path: str, metric: str) -> None:
 		zorder=2,
 	)
 	for _, row in per_model.iterrows():
+		offset, ha = _label_offset(ax, row["mean_time"], row["mean_metric"])
 		ax.annotate(
 			row["model"],
 			(row["mean_time"], row["mean_metric"]),
 			fontsize=9,
-			xytext=(8, 6),
+			xytext=offset,
 			textcoords="offset points",
+			ha=ha,
 		)
 
 	ax.set_xlabel("Mean total generation time per run (s)")
@@ -467,12 +486,14 @@ def _plot_model_size_scatter(
 		zorder=2,
 	)
 	for _, row in per_model.iterrows():
+		offset, ha = _label_offset(ax, row["billion_params"], row[y_col])
 		ax.annotate(
 			row["model"],
 			(row["billion_params"], row[y_col]),
 			fontsize=9,
-			xytext=(6, 6),
+			xytext=offset,
 			textcoords="offset points",
+			ha=ha,
 		)
 	ax.set_xlabel("Billion parameters")
 	ax.set_ylabel(y_label)
@@ -517,6 +538,162 @@ def plot_model_size_vs_quality(df: pd.DataFrame, output_path: str, metric: str) 
 	)
 
 
+def plot_difficulty_tier_bars(df: pd.DataFrame, output_path: str, metric: str) -> None:
+	"""Mean final metric (95% CI) per difficulty tier, grouped by condition —
+	the RQ1 counterpart to `plot_final_summary_bars`, but broken down by
+	prompt difficulty instead of model, to test whether harder prompts (more
+	lines of code, more chances to err) end up with higher residual error
+	counts after reprompting."""
+	summary = summarize_by_difficulty_condition(df)
+	summary = summary[summary["metric"] == metric]
+	difficulties = [d for d in DIFFICULTY_ORDER if d in summary["difficulty"].unique()]
+	conditions = [c for c in CONDITION_ORDER if c in summary["condition"].unique()]
+	palette = dict(zip(conditions, sns.color_palette(n_colors=len(conditions))))
+
+	fig, ax = plt.subplots(figsize=(8.5, 5.5))
+	x = np.arange(len(difficulties))
+	width = 0.8 / max(len(conditions), 1)
+	label_pad = summary["ci_high"].max() * 0.03 if not summary.empty else 0.05
+
+	for i, condition in enumerate(conditions):
+		sub = (
+			summary[summary["condition"] == condition]
+			.set_index("difficulty")
+			.reindex(difficulties)
+		)
+		means = sub["mean"].to_numpy()
+		lo = np.clip(means - sub["ci_low"].to_numpy(), 0, None)
+		hi = np.clip(sub["ci_high"].to_numpy() - means, 0, None)
+		offsets = x + (i - (len(conditions) - 1) / 2) * width
+		ax.bar(
+			offsets,
+			means,
+			width=width * 0.9,
+			label=condition.capitalize(),
+			color=palette[condition],
+			yerr=[lo, hi],
+			capsize=3,
+			edgecolor="white",
+			linewidth=0.6,
+		)
+		for xi, mean, hi_err, n in zip(offsets, means, hi, sub["n"].to_numpy()):
+			if np.isnan(mean):
+				continue
+			ax.annotate(
+				f"{mean:.2f}\n(n={int(n)})",
+				(xi, mean + hi_err + label_pad),
+				ha="center",
+				va="bottom",
+				fontsize=7.5,
+				color="0.3",
+			)
+
+	ax.set_xticks(x)
+	ax.set_xticklabels([d.capitalize() for d in difficulties])
+	ax.set_xlabel("Prompt difficulty tier")
+	ax.set_ylabel(f"Mean final {metric} (95% CI)")
+	ax.grid(alpha=0.3, axis="y")
+	ax.margins(y=0.18)
+	_style_legend(ax.legend(title="Condition"))
+
+	feedback_row = summary[summary["condition"] == "feedback"].set_index("difficulty")
+	if {"simple", "difficult"} <= set(feedback_row.index):
+		simple_mean = feedback_row.loc["simple", "mean"]
+		difficult_mean = feedback_row.loc["difficult", "mean"]
+		if difficult_mean > simple_mean:
+			subtitle = (
+				f"Difficult prompts end with {_safe_pct_diff(simple_mean, difficult_mean):.0f}% "
+				f"more residual {metric} than simple prompts, under feedback."
+			)
+		else:
+			subtitle = (
+				f"Difficult prompts do not end with more residual {metric} than simple "
+				"prompts under feedback — difficulty alone does not predict final quality."
+			)
+	else:
+		subtitle = None
+	_titled(ax, f"Final {metric} by difficulty tier and condition", subtitle)
+
+	sns.despine(fig)
+	fig.tight_layout()
+	fig.savefig(output_path, bbox_inches="tight")
+	plt.close(fig)
+
+
+def plot_iteration_convergence(df: pd.DataFrame, output_path: str, metric: str) -> None:
+	"""Distribution of the iteration at which each (model, prompt, trial) run
+	first reaches zero `metric` under feedback reprompting, split by
+	difficulty tier — directly answers "how many reprompts are actually
+	worth it" and whether that answer depends on prompt difficulty. Runs that
+	never reach zero within the observed iterations are shown as a separate
+	"not resolved" bucket rather than dropped, since silently excluding them
+	would overstate how quickly the loop converges."""
+	conv = iterations_to_convergence(df, "feedback", metric)
+	difficulty_of_run = df.drop_duplicates("run_id").set_index("run_id")["difficulty"]
+	conv["difficulty"] = conv["run_id"].map(difficulty_of_run)
+
+	max_iter = int(conv["iterations_to_convergence"].max(skipna=True))
+	bucket_labels = [str(i) for i in range(max_iter + 1)] + ["Not\nresolved"]
+	conv["bucket"] = conv["iterations_to_convergence"].apply(
+		lambda v: str(int(v)) if pd.notna(v) else "Not\nresolved"
+	)
+
+	difficulties = [d for d in DIFFICULTY_ORDER if d in conv["difficulty"].unique()]
+	palette = dict(
+		zip(difficulties, sns.color_palette(n_colors=len(difficulties)))
+	)
+
+	counts = (
+		conv.groupby(["bucket", "difficulty"])
+		.size()
+		.reindex(
+			pd.MultiIndex.from_product(
+				[bucket_labels, difficulties], names=["bucket", "difficulty"]
+			),
+			fill_value=0,
+		)
+		.reset_index(name="count")
+	)
+
+	fig, ax = plt.subplots(figsize=(8.5, 5.5))
+	x = np.arange(len(bucket_labels))
+	width = 0.8 / max(len(difficulties), 1)
+	for i, difficulty in enumerate(difficulties):
+		sub = counts[counts["difficulty"] == difficulty].set_index("bucket").reindex(
+			bucket_labels
+		)
+		offsets = x + (i - (len(difficulties) - 1) / 2) * width
+		ax.bar(
+			offsets,
+			sub["count"].to_numpy(),
+			width=width * 0.9,
+			label=difficulty.capitalize(),
+			color=palette[difficulty],
+			edgecolor="white",
+			linewidth=0.6,
+		)
+
+	ax.set_xticks(x)
+	ax.set_xticklabels(bucket_labels)
+	ax.set_xlabel("Reprompt iteration at first zero (0 = already correct pre-reprompt)")
+	ax.set_ylabel("Number of runs")
+	ax.grid(alpha=0.3, axis="y")
+	_style_legend(ax.legend(title="Difficulty"))
+
+	resolved = conv["iterations_to_convergence"].notna()
+	pct_by_2 = (conv.loc[resolved, "iterations_to_convergence"] <= 2).mean() * 100
+	subtitle = (
+		f"{resolved.mean() * 100:.0f}% of runs resolve to zero {metric} within the "
+		f"observed iterations; {pct_by_2:.0f}% of those do so by iteration 2."
+	)
+	_titled(ax, "Reprompt iterations to convergence (feedback condition)", subtitle)
+
+	sns.despine(fig)
+	fig.tight_layout()
+	fig.savefig(output_path, bbox_inches="tight")
+	plt.close(fig)
+
+
 def main(results_csv: str, output_dir: str, metric: str) -> None:
 	os.makedirs(output_dir, exist_ok=True)
 	df = load_results(results_csv)
@@ -535,6 +712,12 @@ def main(results_csv: str, output_dir: str, metric: str) -> None:
 	)
 	plot_model_size_vs_quality(
 		df, os.path.join(output_dir, f"model_size_vs_quality_{metric}.png"), metric
+	)
+	plot_difficulty_tier_bars(
+		df, os.path.join(output_dir, f"difficulty_tier_{metric}.png"), metric
+	)
+	plot_iteration_convergence(
+		df, os.path.join(output_dir, f"iteration_convergence_{metric}.png"), metric
 	)
 
 	print(f"Plots written to {output_dir}/")
